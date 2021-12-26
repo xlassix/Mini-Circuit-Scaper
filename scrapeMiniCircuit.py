@@ -73,8 +73,7 @@ def getPriceList(browser: webdriver) -> dict:
     Returns:
         dict
     """
-    data = getTextById(browser, 'divPriceListLeft').split("\n")[3:]
-    del data[2::3]
+    data = getTextByXPath(browser, '//*[@id="model_price_section"]/table').split("\n")
     return(dict(("PB{} Qty".format(index//2+1), parseFloat(i)) if(index % 2 == 0)
                 else ("PB{} $".format(index//2+1), parseFloat(i)) for index, i in enumerate(data[:20])))
 
