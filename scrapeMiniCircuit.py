@@ -121,11 +121,12 @@ def getItem(browser: webdriver, item: str) -> bool:
     return True
 
 
-# initialise Browser
-browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
 
 def main():
+
+    # initialise Browser
+    browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
     _columns = ['Internal Part Number', 'Description', 'Manufacturer', 'Query',
                 'Qty', 'Run Datetime', "Stock", "Mfr PN", "Mfr", "Mfr Stock", "Mfr Stock Date", 'On-Order', 'On-Order Date', "Lead-Time", "Min Order",
@@ -174,7 +175,7 @@ def main():
             print("could not find `Query` in {}".format(excel))
         result_df[_columns].to_excel(
             path.join(_output_dir, str(timestamp)+"_"+(excel if excel.endswith(".xlsx") else excel+".xlsx")), index=False)
-    # browser.close()
+    browser.close()
 
 
 if __name__ == "__main__":
