@@ -6,6 +6,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from datetime import date, datetime
+from time import sleep
 
 options = webdriver.ChromeOptions()
 
@@ -73,48 +74,12 @@ def getPriceList(browser: webdriver) -> dict:
     Returns:
         dict
     """
-    data = getTextByXPath(browser, '//*[@id="model_price_section"]/table').split("\n")
-    return(dict(("PB{} Qty".format(index//2+1), parseFloat(i)) if(index % 2 == 0)
-                else ("PB{} $".format(index//2+1), parseFloat(i)) for index, i in enumerate(data[:20])))
-
-
-def parseDefault(_str: str):
-    _data = _str.split('can ship')
-    result = [None, None]
-    if(len(_data) == 2):
-        try:
-            result[0] = parseFloat(_data[0])
-        except:
-            result[0] = None
-        result[1] = parseDate(_data[1])
-
-    return result
-
-
-def getMfrDetail(browser: webdriver) -> dict:
-    """The function get manafacturers For ElectoricMaster.com on a product page
-
-    Args:
-        browser (webdriver): Selenium.WebDriver
-
-    Returns:
-        dict
-    """
-    result = {}
-    data = getTextByXPath(browser, '//*[@id="divDefault"]/div/div').split("\n")
-    data = dict((i, j) for i, j in zip(data[::2], data[1::2]))
-    if ("Factory Lead-Time" in data):
-        result['Lead-Time'] = parseFloat(
-            data["Factory Lead-Time"].lower().split("weeks")[0])
-    if('Manufacturer Stock:' in data):
-        [result['Mfr Stock'], result["Mfr Stock Date"]
-         ] = parseDefault(data['Manufacturer Stock:'])
-    if('On Order:' in data):
-        [result['On-Order'], result["On-Order Date"]
-         ] = parseDefault(data['On Order:'])
-    if('Minimum Order:' in data):
-        result["Min Order"] = parseFloat(data['Minimum Order:'])
-    return result
+    data = list(map(lambda x: list(map(lambda y: y.split(" ")[0], x.split(" $"))), getTextByXPath(
+        browser, '//*[@id="model_price_section"]/table').split("\n")[1:]))
+    results = []
+    list(results.extend([("PB{} Qty".format(index+1), parseFloat(i[0])),
+         ("PB{} $".format(index+1), parseFloat(i[1]))]) for index, i in enumerate(data[:20]))
+    return dict(results)
 
 
 def getExcels(path: str) -> [str]:
@@ -143,23 +108,28 @@ def getItem(browser: webdriver, item: str) -> bool:
     url = (
         "https://www.minicircuits.com/WebStore/modelSearch.html?model={0}".format(item))
     browser.get(url)
-    try:
-        search_result_elem=browser.find_element(by=By.XPATH,
-                                value='/html/body/section[1]/section/div[1]/div[1]/a')
+    if len(browser.find_elements(by=By.XPATH, value='//*[@id="wrapper"]/header/a/img')) == 0:
+        sleep(8)  # bypass access denial
+        getItem(browser, item)
+    elif len(browser.find_elements(by=By.XPATH, value='//*[@id="wrapper"]/section/div[1]/label[1]')) > 0:
+        return False
+    if len(browser.find_elements(by=By.XPATH, value='//*[@id="wrapper"]/section/div[1]/div[1]')) > 0:
+        search_result_elem = browser.find_element(by=By.XPATH,
+                                                  value='//*[@id="wrapper"]/section/div[1]/div[1]/a')
         if(browser.current_url == url):
             search_result_elem.click()
-        return True
-    except Exception as e:
-        return False
+    return True
+
+
+# initialise Browser
+browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
 
 def main():
-    # initialise Browser
-    browser = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
 
     _columns = ['Internal Part Number', 'Description', 'Manufacturer', 'Query',
                 'Qty', 'Run Datetime', "Stock", "Mfr PN", "Mfr", "Mfr Stock", "Mfr Stock Date", 'On-Order', 'On-Order Date', "Lead-Time", "Min Order",
-                "PB1 Qty", "PB2 Qty", "PB3 Qty", "PB4 Qty", "PB5 Qty", "PB6 Qty", "PB7 Qty", "PB8 Qty",	"PB9 Qty", "PB10 Qty", "PB1 $",	"PB2 $", "PB3 $",	"PB4 $",	"PB5 $",	"PB6 $",	"PB7 $",	"PB8 $",	"PB9 $", "PB10 $",	"URL"]
+                "PB1 Qty", "PB2 Qty", "PB3 Qty", "PB4 Qty", "PB5 Qty", "PB6 Qty", "PB7 Qty", "PB8 Qty",	"PB9 Qty", "PB10 Qty", "PB1 $",	"PB2 $", "PB3 $",	"PB4 $",	"PB5 $",	"PB6 $",	"PB7 $",	"PB8 $",	"PB9 $", "PB10 $",	"URL", "Source"]
 
     for excel in (getExcels(_dir)):
         print('\n\n\n')
@@ -169,24 +139,35 @@ def main():
             '.xlsx') else pd.read_csv(path.join(_dir, excel))
         present_columns = set(raw_data.columns).intersection(
             ['Internal Part Number', 'Description', 'Manufacturer', 'Query', 'Qty'])
-        print(raw_data)
         if ("Query" in present_columns):
             for index, row in enumerate(raw_data.to_dict(orient='records')):
                 print("currently at index: {} \nData\t:{}".format(index, row))
                 if getItem(browser, row["Query"]):
                     row['Run Datetime'] = timestamp
                     row['Mfr'] = "Mini-Circuits"
-                    row["Mfr PN"] = getTextByXPath(
-                        browser, '//*[@id="content_area_home"]/section/section[1]/label[1]')
-                    if len(browser.find_elements(by= By.XPATH,value='//*[@id="model_price_section"]/div/p/span' )) != 0:
-                        mfr_date_text = getTextByXPath(browser, '//*[@id="model_price_section"]/div/p/span').split(":")
+                    try:
+                        row["Mfr PN"] = getTextByXPath(
+                            browser, '//*[@id="content_area_home"]/section/section[1]/label[1]')
+                    except:
+                        break
+                    if len(browser.find_elements(by=By.XPATH, value='//*[@id="model_price_section"]/div/p/span')) != 0:
+                        mfr_date_text = getTextByXPath(
+                            browser, '//*[@id="model_price_section"]/div/p/span').split(":")
                         row["On-Order Date"] = null if len(
-                            mfr_date_text) <2 else parseDate(mfr_date_text[1].strip("*"))
-                    if len(browser.find_elements(by= By.XPATH,value='//*[@id="model_price_section"]/div/div[2]/span' )) != 0:
-                        row["Stock"] = getTextByXPath(browser, '//*[@id="model_price_section"]/div/div[2]/span')
-                    # row.update(getPriceList(browser))
-                    row["URL"] = browser.current_url
-                
+                            mfr_date_text) < 2 else parseDate(mfr_date_text[1].strip("*"))
+                    if len(browser.find_elements(by=By.XPATH, value='//*[@id="model_price_section"]/div/div[2]/span')) != 0:
+                        stock = getTextByXPath(
+                            browser, '//*[@id="model_price_section"]/div/div[2]/span').split(" ")
+                        row["Stock"] = ">" + \
+                            stock[-1] if len(stock) > 1 else stock[-1]
+                    if len(browser.find_elements(by=By.XPATH, value='//*[@id="model_price_section"]/table/thead/tr/th[1]')) != 0:
+                        row.update(getPriceList(browser))
+                else:
+                    row['Run Datetime'] = timestamp
+                    row['Mfr'] = "No Result"
+                    row["Mfr PN"] = "No Result"
+                row["Source"] = "Mini-Circuits.com"
+                row["URL"] = browser.current_url
                 result_df = result_df.append(
                     row, ignore_index=True, sort=False)
         else:
